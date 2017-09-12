@@ -6,7 +6,7 @@
 int main()
 {
 
-   TTrivialTDS tds(512, 128);
+   TTrivialTDS tds(32, 2);
 
    for (auto&& name : tds.GetColumnNames()) {
       std::cout << name << std::endl;
@@ -20,16 +20,23 @@ int main()
 
    auto ranges = tds.GetEntryRanges();
 
-   std::vector<std::thread> pool;
    auto slot = 0U;
    for (auto&& range : ranges) {
-     pool.emplace_back([slot, &range](){
-        for (auto i : ROOT::TSeqUL(range.first, range.second))
-         printf("Slot %u , Entry %lu\n", slot, i);
-        });
-     slot++;
+      printf("Chunk %u , Entry Range %llu -  %llu\n", slot, range.first, range.second);
+      slot++;
    }
-
+   std::vector<std::thread> pool;
+   slot = 0U;
+   for (auto&& range : ranges) {
+      pool.emplace_back([slot, &range, &tds]() {
+         for (auto i : ROOT::TSeq<ULong64_t>(range.first, range.second)) {
+            tds.SetEntry(i, slot);
+            auto val = **tds.GetColumnReader<ULong64_t>("col0", slot);
+            printf("Value of col0 for entry %llu is %llu\n", i, val);
+         }
+      });
+      slot++;
+   }
    for (auto&& t : pool) t.join();
 
 }

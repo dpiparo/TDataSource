@@ -13,14 +13,15 @@ private:
   ColumnNames_t fColNames{"col0"};
   std::vector<ULong64_t> fCounter;
   std::vector<ULong64_t *> fCounterAddr;
-  void **GetColumnReaderImpl(const std::type_info &, unsigned int slot) {
-    return (void **)(&fCounterAddr[slot]);
+  const void **GetColumnReaderImpl(const std::type_info &, unsigned int slot) {
+    printf("slot %u %p\n", slot, fCounterAddr[slot] );
+    return (const void **)(&fCounterAddr[slot]);
   }
 
 public:
   TTrivialTDS(ULong64_t size, ULong64_t chunkSize)
-      : fSize(size), fChunkSize(chunkSize), fCounter(size), fCounterAddr(size) {
-        for (auto i : ROOT::TSeqU(size)) fCounterAddr[i] = &fCounter[i];
+      : fSize(size), fChunkSize(chunkSize), fCounter(size/chunkSize), fCounterAddr(size/chunkSize) {
+        for (auto i : ROOT::TSeqU(size/chunkSize)) fCounterAddr[i] = &fCounter.at(i);
   }
 
   ~TTrivialTDS() {}
@@ -46,7 +47,7 @@ public:
     }
     return fEntryRanges;
   }
-  void SetEntry(ULong64_t entry, unsigned int slot) { fCounter[slot] = entry; }
+  void SetEntry(ULong64_t entry, unsigned int slot) { printf("Setting %u to %llu\n", slot, entry) ; fCounter[slot] = entry; }
 };
 
 #endif
