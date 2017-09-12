@@ -25,14 +25,15 @@ int main()
       printf("Chunk %u , Entry Range %llu -  %llu\n", slot, range.first, range.second);
       slot++;
    }
+
+   auto vals = tds.GetColumnReaders<ULong64_t>("col0", slot);
    std::vector<std::thread> pool;
    slot = 0U;
    for (auto&& range : ranges) {
-      pool.emplace_back([slot, &range, &tds]() {
+      pool.emplace_back([slot, &range, &tds, &vals]() {
          for (auto i : ROOT::TSeq<ULong64_t>(range.first, range.second)) {
             tds.SetEntry(i, slot);
-            auto val = **tds.GetColumnReader<ULong64_t>("col0", slot);
-            printf("Value of col0 for entry %llu is %llu\n", i, val);
+            printf("Value of col0 for entry %llu is %llu\n", i, **vals[slot]);
          }
       });
       slot++;
