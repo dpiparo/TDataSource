@@ -4,7 +4,7 @@
 
 class TDataSource {
 protected:
-  virtual void **GetColumnReaderImpl(const std::type_info &) = 0;
+  virtual void **GetColumnReaderImpl(const std::type_info &, unsigned int slot) = 0;
 
 public:
   virtual ~TDataSource() = 0;
