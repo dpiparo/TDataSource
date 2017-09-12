@@ -2,7 +2,6 @@
 #define ROOT_TDataSource
 
 #include "ROOT/TDataFrame.hxx"
-#include "RTypes.h"
 #include <typeinfo>
 
 using ROOT::Detail::TDF::ColumnNames_t;
