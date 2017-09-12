@@ -14,7 +14,7 @@ public:
   const T **GetColumnReader(std::string_view, unsigned int slot) {
     return (T **)GetColumnReaderImpl(typeid(T));
   }
-  virtual const std::vector<std::pair<ULong64_t>> &GetEntryRanges() const = 0;
+  virtual const std::vector<std::pair<ULong64_t, ULong64_t>> &GetEntryRanges() const = 0;
   virtual void SetEntry(ULong64_t entry, unsigned slot) = 0;
 }
 ```
