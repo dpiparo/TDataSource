@@ -24,4 +24,6 @@ public:
   virtual void SetEntry(ULong64_t entry, unsigned slot) = 0;
 };
 
+inline TDataSource::~TDataSource() { }
+
 #endif
