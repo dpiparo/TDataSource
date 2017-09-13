@@ -8,11 +8,11 @@ int main()
 
    TTrivialTDS tds(32, 2);
 
-   for (auto&& name : tds.GetColumnNames()) {
+   for (auto &&name : tds.GetColumnNames()) {
       std::cout << name << std::endl;
    }
 
-   for (auto&& colName : {"test", "col0"}) {
+   for (auto &&colName : {"test", "col0"}) {
       std::cout << "Has column \"" << colName << "\" ? " << tds.HasColumn(colName) << std::endl;
    }
 
@@ -21,7 +21,7 @@ int main()
    auto ranges = tds.GetEntryRanges();
 
    auto slot = 0U;
-   for (auto&& range : ranges) {
+   for (auto &&range : ranges) {
       printf("Chunk %u , Entry Range %llu -  %llu\n", slot, range.first, range.second);
       slot++;
    }
@@ -29,7 +29,7 @@ int main()
    auto vals = tds.GetColumnReaders<ULong64_t>("col0", slot);
    std::vector<std::thread> pool;
    slot = 0U;
-   for (auto&& range : ranges) {
+   for (auto &&range : ranges) {
       pool.emplace_back([slot, &range, &tds, &vals]() {
          for (auto i : ROOT::TSeq<ULong64_t>(range.first, range.second)) {
             tds.SetEntry(i, slot);
@@ -38,6 +38,6 @@ int main()
       });
       slot++;
    }
-   for (auto&& t : pool) t.join();
-
+   for (auto &&t : pool)
+      t.join();
 }

@@ -3,84 +3,114 @@
 
 #include "ROOT/TDataSource.hxx"
 
+#include "TChain.h"
 #include "ROOT/TSeq.hxx"
 
-#include <deque>
+#include <algorithm>
 #include <vector>
-
-/*
-class TDataSource {
-protected:
-  virtual const void *GetColumnReaderImpl(std::string_view name,
-                                          unsigned int slot,
-                                          const std::type_info &ti) = 0;
-
-public:
-  virtual ~TDataSource() = 0;
-  virtual const ColumnNames_t &GetColumnNames() const = 0;
-  virtual bool HasColumn(std::string_view) const = 0;
-  virtual std::string GetTypeName(std::string_view) const = 0;
-  void InitSlot(unsigned int) {} ;
-
-  // Here the first vector is indexed with slots while the second with columns
-  template<typename T>
-  std::vector<const T*const*> GetColumnReaders(std::string_view name, unsigned int nSlots) {
-    std::vector<const T*const*> readers(nSlots);
-    for(auto slot = 0u; slot < nSlots; ++slot)
-      readers[slot] = static_cast<const T*const*>(GetColumnReaderImpl(name, slot, typeid(T)));
-    return readers;
-  }
-
-};
-*/
 
 class TRootTDS : public TDataSource {
 private:
+   mutable TChain fModelChain;
    std::string fTreeName;
    std::string fFileNameGlob;
    std::vector<std::string> fRequiredColumns;
-   std::deque<std::deque<void*>> fBranchAddresses; // first container-> slot, second -> column;
+   mutable std::vector<std::string> fListOfBranches;
+   mutable std::vector<std::pair<ULong64_t, ULong64_t>> fEntryRanges;
+   std::vector<std::vector<void *>> fBranchAddresses {}; // first container-> slot, second -> column;
 
    std::vector<std::unique_ptr<TChain>> fChains;
-   const void *GetColumnReaderImpl(std::string_view name,
-                                   unsigned int slot,
-                                   const std::type_info &ti) {
 
+   void InitAddresses() {
+      auto nColumns = GetColumnNames().size();
+      // Initialise the entire set of addresses
+      std::cout << fNSlots << " this is the number..\n";
+      fBranchAddresses.resize(fNSlots, std::vector<void *>(nColumns));
    }
+
+   const void *GetColumnReaderImpl(std::string_view name, unsigned int slot,
+                                   const std::type_info & /*TODO do something about type checking*/)
+   {
+      std::cout << "Branch addresses size = " << fBranchAddresses.size() << std::endl;
+      if (fBranchAddresses.empty()) InitAddresses();
+      // A cache for the name-index pairs?
+      const auto &colNames = GetColumnNames();
+      const auto index = std::distance(colNames.begin(), std::find(colNames.begin(), colNames.end(), name));
+      return fBranchAddresses[slot][index];
+   }
+
 public:
-   TRootTDS(std::string_view treeName, std::string_view fileNameGlob) : fTreeName(treeName), fFileNameGlob(fileNameGlob) {
-
+   TRootTDS(std::string_view treeName, std::string_view fileNameGlob)
+      : fTreeName(treeName), fFileNameGlob(fileNameGlob), fModelChain(std::string(treeName).c_str())
+   {
+      fModelChain.Add(fFileNameGlob.c_str());
    }
 
-   void InitSlot(unsigned int slot) {
-      if (fBranchAddresses.size() <= slot) {
-         fBranchAddresses.resize(1U + slot);
+   ~TRootTDS(){};
+
+   std::string GetTypeName(std::string_view colName) const
+   {
+      if (!HasColumn(colName)) {
+         std::string e = "The dataset does not have column ";
+         e += colName;
+         throw std::runtime_error(e);
       }
-      fChains[i].reset(new TChain(fTreeName.c_str()));
-      fChains[i]->Add(fFileNameGlob.c_str());
+      // TODO: we need to factor out the routine for the branch alone...
+      // Maybe a cache for the names?
+      return ROOT::Internal::TDF::ColumnName2ColumnTypeName(std::string(colName).c_str(), &fModelChain,
+                                                            nullptr /*TCustomColumnBase here*/);
+   }
+
+   const ColumnNames_t &GetColumnNames() const
+   {
+      if (!fListOfBranches.empty())
+         return fListOfBranches;
+      auto &lob = *fModelChain.GetListOfBranches();
+      fListOfBranches.resize(lob.GetEntries());
+      std::transform(lob.begin(), lob.end(), fListOfBranches.begin(), [](TObject *o) { return o->GetName(); });
+      return fListOfBranches;
+   }
+
+   bool HasColumn(std::string_view colName) const
+   {
+      if (!fListOfBranches.empty())
+         GetColumnNames();
+      return fListOfBranches.end() != std::find(fListOfBranches.begin(), fListOfBranches.end(), colName);
+   }
+
+   void InitSlot(unsigned int slot)
+   {
+      fChains[slot].reset(new TChain(fTreeName.c_str()));
+      fChains[slot]->Add(fFileNameGlob.c_str());
       const auto nRequiredColumns = fRequiredColumns.size();
-      auto& theseBranchAddresses = fBranchAddresses[slot];
-      theseBranchAddresses.resize(nRequiredColumns);
-      for (size_t i = 0; i< nRequiredColumns ++i) {
-         void* addr(nullptr);
-         theseBranchAddresses.emplace_back(addr);
-         fChains[i]->SetBranchAddress(fRequiredColumns[i], theseBranchAddresses[i]);
+      auto &theseBranchAddresses = fBranchAddresses[slot];
+      for (auto i : ROOT::TSeqU(theseBranchAddresses.size())) {
+         fChains[slot]->SetBranchAddress(fRequiredColumns[i].c_str(), theseBranchAddresses[i]);
       }
-
    }
 
-   const std::vector<std::pair<ULong64_t, ULong64_t>> &GetEntryRanges() const {
+   const std::vector<std::pair<ULong64_t, ULong64_t>> &GetEntryRanges() const
+   {
       // Quick implementation: divide in equal parts.
       // We need to respect the clusters to be fair.
-      auto nentries = fChains[0]->GetEntriesFast();
-      // XXX Here we need to have the number of slots ...XXX
-
+      if (!fEntryRanges.empty())
+         return fEntryRanges;
+      auto nentries = fModelChain.GetEntriesFast();
+      std::cout << fNSlots << std::endl;
+      auto chunkSize = nentries / fNSlots;
+      auto reminder = nentries % fNSlots;
+      auto start = 0UL;
+      auto end = 0UL;
+      for (auto i : ROOT::TSeqU(fNSlots)) {
+         start = end;
+         end += chunkSize;
+         fEntryRanges.emplace_back(start, end);
+      }
+      fEntryRanges.back().second += reminder;
+      return fEntryRanges;
    }
 
-   void SetEntry(ULong64_t entry, unsigned slot) {
-      fChains[i]->SetEntry(entry);
-   }
+   void SetEntry(ULong64_t entry, unsigned slot) { fChains[slot]->GetEntry(entry); }
 };
 
 #endif
-
