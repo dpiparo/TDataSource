@@ -38,6 +38,6 @@ int main()
       });
       slot++;
    }
-   for (auto &&t : pool)
-      t.join();
+
+   for (auto &&t : pool) t.join();
 }

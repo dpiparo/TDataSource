@@ -2,15 +2,20 @@
 #define ROOT_TROOTTDS
 
 #include "ROOT/TDataSource.hxx"
+#include "ROOT/TDataFrame.hxx"
 
 #include "TChain.h"
+#include "TClass.h"
 #include "ROOT/TSeq.hxx"
 
 #include <algorithm>
 #include <vector>
 
-class TRootTDS final : public TDataSource {
+using ROOT::Detail::TDF::ColumnNames_t;
+
+class TRootTDS final : public ROOT::Experimental::TDF::TDataSource {
 private:
+   unsigned int fNSlots = 1U;
    mutable TChain fModelChain;
    std::string fTreeName;
    std::string fFileNameGlob;
@@ -26,9 +31,9 @@ private:
       fBranchAddresses.resize(nColumns, std::vector<void *>(fNSlots));
    }
 
-   const void *GetColumnReaderImpl(std::string_view name, unsigned int slot,
-                                   const std::type_info & /*TODO do something about type checking*/)
-   {
+   std::vector<void *>
+   GetColumnReadersImpl(std::string_view name, unsigned int nSlots, const std::type_info &){
+      fNSlots = nSlots;
       if (fBranchAddresses.empty()) {
          InitAddresses();
          fChains.resize(fNSlots);
@@ -36,7 +41,12 @@ private:
 
       const auto &colNames = GetColumnNames();
       const auto index = std::distance(colNames.begin(), std::find(colNames.begin(), colNames.end(), name));
-      return (void*) & fBranchAddresses[index][slot];
+      std::vector<void *> ret(nSlots);
+      for (auto slot : ROOT::TSeqU(nSlots)) {
+         ret[slot] = (void*) & fBranchAddresses[index][slot];
+      }
+      return ret;
+
    }
 
 public:
@@ -57,8 +67,11 @@ public:
       }
       // TODO: we need to factor out the routine for the branch alone...
       // Maybe a cache for the names?
-      return ROOT::Internal::TDF::ColumnName2ColumnTypeName(std::string(colName).c_str(), &fModelChain,
-                                                            nullptr /*TCustomColumnBase here*/);
+      auto typeName = ROOT::Internal::TDF::ColumnName2ColumnTypeName(std::string(colName).c_str(), &fModelChain,
+                                                                     nullptr /*TCustomColumnBase here*/);
+      // We may not have yet loaded the library where the dictionary of this type is
+      TClass::GetClass(typeName.c_str());
+      return typeName;
    }
 
    const ColumnNames_t &GetColumnNames() const
@@ -78,14 +91,17 @@ public:
       return fListOfBranches.end() != std::find(fListOfBranches.begin(), fListOfBranches.end(), colName);
    }
 
-   void InitSlot(unsigned int slot)
+   void InitSlot(unsigned int slot, ULong64_t firstEntry)
    {
+      if (fChains[slot]) {
+         std::cout << "The slot is initialised, why are you calling this twice?\n";
+         return;
+      }
       fChains[slot].reset(new TChain(fTreeName.c_str()));
       fChains[slot]->Add(fFileNameGlob.c_str());
+      fChains[slot]->GetEntry(firstEntry);
       auto &theseBranchAddresses = fBranchAddresses[slot];
       for (auto i : ROOT::TSeqU(fListOfBranches.size())) {
-         auto &p = fBranchAddresses.at(i).at(slot);
-//          std::cout << "This void* is " << p << " its address is " << &p << std::endl;
          fChains[slot]->SetBranchAddress(fListOfBranches.at(i).c_str(), &fBranchAddresses.at(i).at(slot));
       }
       for (auto&& upc : fChains) std::cout << "Chain ptr per slot " << upc.get() << std::endl;
