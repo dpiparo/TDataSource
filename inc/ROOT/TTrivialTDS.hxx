@@ -5,7 +5,7 @@
 
 #include "ROOT/TSeq.hxx"
 
-class TTrivialTDS : public TDataSource {
+class TTrivialTDS final : public TDataSource {
 private:
    ULong64_t fSize;
    ULong64_t fChunkSize;

@@ -9,34 +9,34 @@
 #include <algorithm>
 #include <vector>
 
-class TRootTDS : public TDataSource {
+class TRootTDS final : public TDataSource {
 private:
    mutable TChain fModelChain;
    std::string fTreeName;
    std::string fFileNameGlob;
-   std::vector<std::string> fRequiredColumns;
    mutable std::vector<std::string> fListOfBranches;
    mutable std::vector<std::pair<ULong64_t, ULong64_t>> fEntryRanges;
-   std::vector<std::vector<void *>> fBranchAddresses {}; // first container-> slot, second -> column;
+   std::vector<std::vector<void *>> fBranchAddresses; // first container-> slot, second -> column;
 
    std::vector<std::unique_ptr<TChain>> fChains;
 
    void InitAddresses() {
       auto nColumns = GetColumnNames().size();
       // Initialise the entire set of addresses
-      std::cout << fNSlots << " this is the number..\n";
-      fBranchAddresses.resize(fNSlots, std::vector<void *>(nColumns));
+      fBranchAddresses.resize(nColumns, std::vector<void *>(fNSlots));
    }
 
    const void *GetColumnReaderImpl(std::string_view name, unsigned int slot,
                                    const std::type_info & /*TODO do something about type checking*/)
    {
-      std::cout << "Branch addresses size = " << fBranchAddresses.size() << std::endl;
-      if (fBranchAddresses.empty()) InitAddresses();
-      // A cache for the name-index pairs?
+      if (fBranchAddresses.empty()) {
+         InitAddresses();
+         fChains.resize(fNSlots);
+      }
+
       const auto &colNames = GetColumnNames();
       const auto index = std::distance(colNames.begin(), std::find(colNames.begin(), colNames.end(), name));
-      return fBranchAddresses[slot][index];
+      return (void*) & fBranchAddresses[index][slot];
    }
 
 public:
@@ -82,11 +82,13 @@ public:
    {
       fChains[slot].reset(new TChain(fTreeName.c_str()));
       fChains[slot]->Add(fFileNameGlob.c_str());
-      const auto nRequiredColumns = fRequiredColumns.size();
       auto &theseBranchAddresses = fBranchAddresses[slot];
-      for (auto i : ROOT::TSeqU(theseBranchAddresses.size())) {
-         fChains[slot]->SetBranchAddress(fRequiredColumns[i].c_str(), theseBranchAddresses[i]);
+      for (auto i : ROOT::TSeqU(fListOfBranches.size())) {
+         auto &p = fBranchAddresses.at(i).at(slot);
+//          std::cout << "This void* is " << p << " its address is " << &p << std::endl;
+         fChains[slot]->SetBranchAddress(fListOfBranches.at(i).c_str(), &fBranchAddresses.at(i).at(slot));
       }
+      for (auto&& upc : fChains) std::cout << "Chain ptr per slot " << upc.get() << std::endl;
    }
 
    const std::vector<std::pair<ULong64_t, ULong64_t>> &GetEntryRanges() const
@@ -96,7 +98,6 @@ public:
       if (!fEntryRanges.empty())
          return fEntryRanges;
       auto nentries = fModelChain.GetEntriesFast();
-      std::cout << fNSlots << std::endl;
       auto chunkSize = nentries / fNSlots;
       auto reminder = nentries % fNSlots;
       auto start = 0UL;
