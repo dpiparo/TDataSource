@@ -26,27 +26,23 @@ private:
    std::vector<std::unique_ptr<TChain>> fChains;
 
    void InitAddresses() {
-      auto nColumns = GetColumnNames().size();
-      // Initialise the entire set of addresses
-      fBranchAddresses.resize(nColumns, std::vector<void *>(fNSlots));
+
    }
 
    std::vector<void *>
-   GetColumnReadersImpl(std::string_view name, unsigned int nSlots, const std::type_info &){
-      fNSlots = nSlots;
-      if (fBranchAddresses.empty()) {
-         InitAddresses();
-         fChains.resize(fNSlots);
-      }
-
+   GetColumnReadersImpl(std::string_view name, const std::type_info &){
       const auto &colNames = GetColumnNames();
       const auto index = std::distance(colNames.begin(), std::find(colNames.begin(), colNames.end(), name));
-      std::vector<void *> ret(nSlots);
-      for (auto slot : ROOT::TSeqU(nSlots)) {
+      std::vector<void *> ret(fNSlots);
+      for (auto slot : ROOT::TSeqU(fNSlots)) {
          ret[slot] = (void*) & fBranchAddresses[index][slot];
       }
       return ret;
+   }
 
+   // This is not even a method...
+   bool IsClass(const std::string& typeName){
+      return nullptr != TClass::GetClass(typeName.c_str());
    }
 
 public:
@@ -93,18 +89,40 @@ public:
 
    void InitSlot(unsigned int slot, ULong64_t firstEntry)
    {
+
+      if (fChains.empty()) {
+         fChains.resize(fNSlots);
+      }
+
       if (fChains[slot]) {
-         std::cout << "The slot is initialised, why are you calling this twice?\n";
          return;
       }
-      fChains[slot].reset(new TChain(fTreeName.c_str()));
-      fChains[slot]->Add(fFileNameGlob.c_str());
-      fChains[slot]->GetEntry(firstEntry);
+
+      if (fBranchAddresses.empty()) {
+         std::cout << "RESIZING\n";
+         auto nColumns = GetColumnNames().size();
+         // Initialise the entire set of addresses
+         fBranchAddresses.resize(nColumns, std::vector<void *>(fNSlots));
+      }
+
+
+      auto chain = new TChain(fTreeName.c_str());
+      fChains[slot].reset(chain);
+      chain->Add(fFileNameGlob.c_str());
+      chain->GetEntry(firstEntry);
       auto &theseBranchAddresses = fBranchAddresses[slot];
       for (auto i : ROOT::TSeqU(fListOfBranches.size())) {
-         fChains[slot]->SetBranchAddress(fListOfBranches.at(i).c_str(), &fBranchAddresses.at(i).at(slot));
+         auto colName = fListOfBranches[i].c_str();
+         auto &addr = fBranchAddresses[i][slot];
+         if (IsClass(GetTypeName(colName))) {
+            chain->SetBranchAddress(colName, &addr);
+         } else {
+            if (!addr) {
+               addr = new double(); // who frees this :) ?
+            }
+            chain->SetBranchAddress(colName, addr);
+         }
       }
-      for (auto&& upc : fChains) std::cout << "Chain ptr per slot " << upc.get() << std::endl;
    }
 
    const std::vector<std::pair<ULong64_t, ULong64_t>> &GetEntryRanges() const
@@ -128,6 +146,8 @@ public:
    }
 
    void SetEntry(ULong64_t entry, unsigned slot) { fChains[slot]->GetEntry(entry); }
+
+   void SetNSlots(ULong64_t nSlots) { std::cout << "SETTING NSLOTS\n"; ;fNSlots = nSlots; }
 };
 
 #endif

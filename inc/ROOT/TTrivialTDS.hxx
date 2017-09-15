@@ -12,28 +12,25 @@ class TTrivialTDS final : public ROOT::Experimental::TDF::TDataSource {
 private:
    unsigned int fNSlots = 0U;
    ULong64_t fSize;
-   ULong64_t fChunkSize;
    mutable std::vector<std::pair<ULong64_t, ULong64_t>> fEntryRanges;
    ColumnNames_t fColNames{"col0"};
    std::vector<ULong64_t> fCounter;
    std::vector<ULong64_t *> fCounterAddr;
    std::vector<void *>
-   GetColumnReadersImpl(std::string_view name, unsigned int nSlots, const std::type_info &){
+   GetColumnReadersImpl(std::string_view name, const std::type_info &)
    {
-      fNSlots = nSlots;
       std::vector<void *> ret;
-      for (auto i : ROOT::TSeqU(nSlots)) {
-         ret.emplace_back((void *)(&fCounterAddr[i]););
+      for (auto i : ROOT::TSeqU(fNSlots)) {
+         fCounterAddr[i] = & fCounter[i];
+         ret.emplace_back((void *)(&fCounterAddr[i]));
       }
       return ret;
    }
 
 public:
-   TTrivialTDS(ULong64_t size, ULong64_t chunkSize)
-      : fSize(size), fChunkSize(chunkSize), fCounter(size / chunkSize), fCounterAddr(size / chunkSize)
+   TTrivialTDS(ULong64_t size)
+      : fSize(size)
    {
-      for (auto i : ROOT::TSeqU(size / chunkSize))
-         fCounterAddr[i] = &fCounter.at(i);
    }
 
    ~TTrivialTDS() {}
@@ -48,17 +45,26 @@ public:
    {
       if (!fEntryRanges.empty())
          return fEntryRanges;
-      auto nChunks = fSize / fChunkSize;
+      auto chunckSize = fSize / fNSlots;
       auto start = 0UL;
       auto end = 0UL;
-      for (auto i : ROOT::TSeqUL(nChunks)) {
+      for (auto i : ROOT::TSeqUL(fNSlots)) {
          start = end;
-         end += fChunkSize;
+         end += chunckSize;
          fEntryRanges.emplace_back(start, end);
       }
+      fEntryRanges.back().second += fSize % fNSlots;
       return fEntryRanges;
    }
    void SetEntry(ULong64_t entry, unsigned int slot) { fCounter[slot] = entry; }
+
+   void SetNSlots(ULong64_t nSlots) {
+      if (0U != fNSlots) return;
+      fNSlots = nSlots;
+      fCounter.resize(fNSlots);
+      fCounterAddr.resize(fNSlots);
+   };
+
 };
 
 #endif
